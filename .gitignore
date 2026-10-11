@@ -1,0 +1,19 @@
+# 依赖
+node_modules/
+
+# 密钥与本机状态 —— 绝对不要提交
+.env
+.env.local
+*.log
+
+# 状态 / 缓存目录
+.pi-feishu/
+
+# macOS
+.DS_Store
+._*
+
+# 编辑器
+.vscode/
+.idea/
+*.swp
