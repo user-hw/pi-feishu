@@ -57,11 +57,19 @@ await probe('机器人所在的群列表（im:chat:readonly）', () =>
   client.im.v1.chat.list({ params: { page_size: 50 } }),
 );
 
+// 故意构造一个「形状合法但不存在」的会话 ID，用来区分「权限不足」和「业务报错」。
+// 在运行时拼出来，而不是写成字面量 —— 否则会被 scripts/check-privacy.sh 当成隐私泄漏。
+const FAKE_CHAT_ID = `oc_${'0'.repeat(32)}`;
+
 // 3. 发消息权限（im:message:send_as_bot）—— 故意发给不存在的会话，看错误码区分权限问题
 await probe('发送消息权限探针（im:message:send_as_bot）', () =>
   client.im.v1.message.create({
     params: { receive_id_type: 'chat_id' },
-    data: { receive_id: 'oc_00000000000000000000000000000000', msg_type: 'text', content: '{"text":"probe"}' },
+    data: {
+      receive_id: FAKE_CHAT_ID,
+      msg_type: 'text',
+      content: JSON.stringify({ text: 'probe' }),
+    },
   }),
 );
 

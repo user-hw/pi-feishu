@@ -1,0 +1,105 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# 同一分支的新推送会取消上一次还在跑的检查
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── 最重要：防止凭据被误提交 ────────────────────────────────
+  privacy:
+    name: 隐私与密钥扫描
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 扫描已跟踪文件
+        run: bash scripts/check-privacy.sh
+
+  # ── 语法检查 ────────────────────────────────────────────────
+  syntax:
+    name: 语法检查
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: JavaScript 语法
+        run: |
+          set -e
+          fail=0
+          for f in src/*.js scripts/*.js; do
+            if node --check "$f" 2>&1; then
+              echo "✓ $f"
+            else
+              echo "✖ $f"
+              fail=1
+            fi
+          done
+          exit $fail
+
+      - name: Shell 脚本语法
+        run: |
+          set -e
+          for f in scripts/*.sh; do
+            bash -n "$f" && echo "✓ $f"
+          done
+
+  # ── 依赖可安装 + lockfile 一致 ──────────────────────────────
+  install:
+    name: 依赖安装
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      # npm ci 会在 package.json 与 package-lock.json 不一致时直接失败，
+      # 顺便验证依赖树是干净可复现的
+      - name: npm ci
+        run: npm ci
+
+      - name: 验证核心模块能被 import
+        run: |
+          node --input-type=module -e "
+            const bridge   = await import('./src/bridge.js');
+            const config   = await import('./src/config.js');
+            const pool     = await import('./src/pi-pool.js');
+            const polling  = await import('./src/polling.js');
+            const store    = await import('./src/store.js');
+            const commands = await import('./src/commands.js');
+
+            const checks = [
+              ['bridge.runTurn',                bridge.runTurn],
+              ['bridge.AsyncQueue',             bridge.AsyncQueue],
+              ['config.loadConfig',             config.loadConfig],
+              ['pi-pool.PiPool',                pool.PiPool],
+              ['polling.PollingInbox',          polling.PollingInbox],
+              ['store.ChatStore',               store.ChatStore],
+              ['store.createSerializer',        store.createSerializer],
+              ['commands.createCommandHandler', commands.createCommandHandler],
+            ];
+
+            let fail = 0;
+            for (const [name, value] of checks) {
+              if (typeof value !== 'function') {
+                console.error('✖ ' + name + ' 缺失');
+                fail = 1;
+              } else {
+                console.log('✓ ' + name);
+              }
+            }
+            process.exit(fail);
+          "

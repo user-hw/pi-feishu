@@ -1,5 +1,8 @@
 # pi-feishu 🦞
 
+[![CI](https://github.com/user-hw/pi-feishu/actions/workflows/ci.yml/badge.svg)](https://github.com/user-hw/pi-feishu/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+
 **把你的电脑变成一只随叫随到的 AI 助手——在飞书里发条消息，家里那台机器上的 [pi](https://pi.dev) 就替你干活。**
 
 `pi-feishu` 是一层几百行的桥，把飞书聊天窗口接到本地运行的 pi coding agent 上。出门只带手机，也能让电脑读文件、改代码、跑命令，过程和结果**实时流式**推回聊天窗口。
@@ -313,6 +316,24 @@ pi 会把 `PI_SESSION_FILE` / `PI_PROVIDER` 等「会话元数据」注入给它
 - 群白名单留空时**自动信任机器人所在的所有群**——别把机器人拉进任何公开群
 - 需要更强隔离的话，见 pi 官方文档的 `docs/containerization.md`
 
+### 防误提交密钥
+
+仓库带了一个**为本项目定制的隐私扫描器**，它会检查飞书的 ID 格式（`cli_` / `ou_` / `oc_`）、通用密钥赋值、PEM 私钥、个人路径和邮箱：
+
+```bash
+bash scripts/check-privacy.sh            # 扫描所有已跟踪文件
+bash scripts/check-privacy.sh --staged   # 只扫描暂存区
+bash scripts/install-hooks.sh            # 装成 pre-commit hook，提交时自动拦截
+```
+
+CI（`.github/workflows/ci.yml`）里也跑同一套检查，包含三个 job：
+
+| job | 内容 |
+| --- | --- |
+| **隐私与密钥扫描** | 拦截凭据泄漏（最重要的一个） |
+| **语法检查** | `node --check` 全部 JS + `bash -n` 全部 shell 脚本 |
+| **依赖安装** | `npm ci` 验证 lockfile 一致，并确认核心模块能被 import |
+
 ---
 
 ## 项目结构
@@ -334,8 +355,11 @@ scripts/
   diagnose.js          诊断机器人是否收到过消息
   probe-events.js      原始事件探针（排查事件推送）
   probe-perms.js       反查哪些权限真的生效了
+  check-privacy.sh     隐私 / 密钥扫描器
+  install-hooks.sh     装成 git pre-commit hook
   keep-awake.sh        笔记本合盖不休眠
   install-launchd.sh   macOS 开机自启
+.github/workflows/ci.yml   隐私扫描 + 语法检查 + 依赖安装
 ```
 
 ---
