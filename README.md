@@ -326,6 +326,23 @@ bash scripts/check-privacy.sh --staged   # 只扫描暂存区
 bash scripts/install-hooks.sh            # 装成 pre-commit hook，提交时自动拦截
 ```
 
+> 这两个脚本都是**双向验证过的**：干净仓库通过，注入假密钥则 7 类全部拦截。
+> 一个「永远通过」的扫描器是没有意义的。
+
+### 凭据轮换
+
+如果密钥已经泄漏过（比如不小心发到了聊天里／贴进了 issue），**真正管用的是轮换，而不是删除**。
+
+```bash
+bash scripts/set-secret.sh          # 更新 App Secret（read -s 隐藏输入）
+bash scripts/set-secret.sh appid    # 更新 App ID
+python3 scripts/redact-logs.py      # 把旧凭据从本机各类日志里清掉
+```
+
+`set-secret.sh` 用 `read -s` 读输入，密钥**不会进 shell 历史**；写完会自动调 `redact-logs.py` 清理日志，并可选重启服务。
+
+> 一个容易忽略的点：**你排查问题的命令本身也会被记进对话日志**。如果命令里写了密钥字面量，脱敏工作就白做了。所以 `redact-logs.py` 是从 `.env` 读凭据，而不是从命令行参数。
+
 CI（`.github/workflows/ci.yml`）里也跑同一套检查，包含三个 job：
 
 | job | 内容 |
@@ -357,6 +374,8 @@ scripts/
   probe-perms.js       反查哪些权限真的生效了
   check-privacy.sh     隐私 / 密钥扫描器
   install-hooks.sh     装成 git pre-commit hook
+  set-secret.sh        安全录入新凭据（隐藏输入）
+  redact-logs.py       从各类日志里清除凭据
   keep-awake.sh        笔记本合盖不休眠
   install-launchd.sh   macOS 开机自启
 .github/workflows/ci.yml   隐私扫描 + 语法检查 + 依赖安装

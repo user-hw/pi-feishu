@@ -43,18 +43,27 @@ if [ "$FILE_COUNT" -eq 0 ]; then
 fi
 
 # ── 核心扫描函数 ──────────────────────────────────────────────
-# check <名称> <grep -E 模式> [排除模式]
+# 明显的占位符不算泄漏 —— 文档、示例、.env 模板里到处都是。
+# 不加这层过滤的话，每个教人怎么配置的 README 都会把 CI 弄红。
+PLACEHOLDER='xxxx|your|placeholder|redacted|change_?me|example|dummy|sample|todo|none'
+
+# check <名称> <grep -E 模式> [额外排除模式]
 check() {
   local name="$1"
   local pattern="$2"
-  local exclude="${3:-}"
+  local extra="${3:-}"
   local hits
 
   # -I 跳过二进制，-i 忽略大小写（SECRET / Secret / secret 都要抓到），
   # 少写 -i 会漏报大写形式的密钥名，这个坑已经踩过一次。
   hits=$(echo "$SCAN_FILES" | tr '\n' '\0' | xargs -0 grep -nIiE -- "$pattern" 2>/dev/null || true)
-  if [ -n "$exclude" ] && [ -n "$hits" ]; then
-    hits=$(echo "$hits" | grep -vE "$exclude" || true)
+
+  # 先过滤掉占位符，再应用调用方传来的额外排除
+  if [ -n "$hits" ]; then
+    hits=$(echo "$hits" | grep -viE "$PLACEHOLDER" || true)
+  fi
+  if [ -n "$extra" ] && [ -n "$hits" ]; then
+    hits=$(echo "$hits" | grep -viE "$extra" || true)
   fi
 
   if [ -n "$hits" ]; then
@@ -95,8 +104,12 @@ echo "$(bold '② 飞书凭据')"
 # 飞书 App ID：cli_ + 16 位十六进制（文档里的占位符是 xxx，不会被误报）
 check "飞书 App ID（cli_ 开头）+ 十六进制" 'cli_[0-9a-fA-F]{16}' '\.env\.example'
 
-# 飞书 App Secret：等号后面有真实值（.env.example 留空，所以只抓泄漏）
-check "飞书 App Secret 赋值" 'FEISHU_APP_SECRET[[:space:]]*=[[:space:]]*[^[:space:]#]+' '\.env\.example'
+# 飞书 App Secret 赋值。
+# 真实 secret 是 32 位字母数字，所以要求至少 16 位——
+# 否则文档里的 `FEISHU_APP_SECRET=xxx` 这类示例会造成误报。
+check "飞书 App Secret 赋值" \
+  'FEISHU_APP_SECRET[[:space:]]*=[[:space:]]*[A-Za-z0-9_-]{16,}' \
+  '\.env\.example'
 
 # 飞书 open_id / chat_id：ou_ / oc_ + 32 位十六进制
 # 全零 ID 是测试用的占位符（比如探测权限时故意构造一个不存在的会话），不是真隐私
