@@ -8,6 +8,7 @@ import { runTurn } from './bridge.js';
 import { createCommandHandler } from './commands.js';
 import { loadConfig } from './config.js';
 import { PollingInbox } from './polling.js';
+import { Scheduler } from './scheduler.js';
 import { ChatStore, createSerializer } from './store.js';
 
 /**
@@ -106,7 +107,18 @@ async function main() {
     outbound: { streamInitialText: '🤔 思考中…', streamMaxElementChars: 30000 },
   });
 
-  const handleCommand = createCommandHandler({ channel, pool, config, store });
+  // 定时任务：每分钟检查一次「上次检查到现在」有没有该跑的任务。
+  // MacBook 睡了也不怕 —— 醒来自动补跑最近那一次。
+  // ⚠️ 必须在 createCommandHandler 之前定义：/tasks 命令要用到它，
+  //    而 const 在声明前访问会抛 ReferenceError（TDZ）。
+  const scheduler = new Scheduler({
+    pool,
+    channel,
+    store,
+    maxTurnMs: config.maxTurnMs,
+  });
+
+  const handleCommand = createCommandHandler({ channel, pool, config, store, scheduler });
 
   async function handleMessage(msg) {
     const preview = (msg.content ?? '').replace(/\s+/g, ' ').slice(0, 80);
@@ -195,6 +207,8 @@ async function main() {
 
   if (inbox && config.notifyOnStart) await announceStartup({ channel, inbox, config });
 
+  scheduler.start();
+
   console.log(`   工作目录：${config.cwd}`);
   console.log(`   入站方式：${config.transport === 'poll' ? `轮询 (${config.pollMs}ms)` : '事件推送'}`);
   console.log(`   群内@触发：${config.requireMention ? '需要' : '不需要'}`);
@@ -205,6 +219,7 @@ async function main() {
     if (shuttingDown) return;
     shuttingDown = true;
     console.log(`\n收到 ${signal}，正在退出…`);
+    scheduler.stop();
     await Promise.allSettled([inbox?.stop(), channel.disconnect(), pool.close()]);
     process.exit(0);
   };

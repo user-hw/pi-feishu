@@ -21,10 +21,11 @@ const HELP = [
   '| `/cwd <绝对路径>` | 切换工作目录（会开新会话） |',
   '| `/abort` | 中止当前任务 |',
   '| `/whoami` | 显示你的 open_id 和 chat_id |',
+  '| `/tasks` | 查看定时任务 |',
   '| `/help` | 显示这份帮助 |',
 ].join('\n');
 
-export function createCommandHandler({ channel, pool, config, store }) {
+export function createCommandHandler({ channel, pool, config, store, scheduler }) {
   const reply = (msg, markdown) =>
     channel.send(msg.chatId, { markdown }, { replyTo: msg.messageId });
 
@@ -162,6 +163,55 @@ export function createCommandHandler({ channel, pool, config, store }) {
         }
         await pool.setCwd(msg.chatId, arg);
         await reply(msg, `✅ 工作目录已切到 \`${arg}\`，并开了新会话。`);
+        return true;
+      }
+
+      case 'tasks': {
+        if (!scheduler) {
+          await reply(msg, '⚠️ 调度器未启用');
+          return true;
+        }
+        scheduler.loadTasks();
+        const tasks = scheduler.summary();
+        if (tasks.length === 0) {
+          await reply(
+            msg,
+            [
+              '现在还没有定时任务。',
+              '',
+              '任务写在 `~/pi-feishu/tasks.json`，格式：',
+              '```json',
+              '{ "tasks": [{',
+              '    "id": "morning",',
+              '    "name": "早间简报",',
+              '    "schedule": "0 8 * * *",',
+              `    "chat": "${msg.chatId}",`,
+              '    "prompt": "给我一份今天的简报…"',
+              '}] }',
+              '```',
+              '你也可以直接在这里说「每天早上 8 点提醒我 xxx」，我来帮你写进去。',
+            ].join('\n'),
+          );
+          return true;
+        }
+        const lines = ['**定时任务**', ''];
+        for (const t of tasks) {
+          const last = t.lastChecked
+            ? t.lastChecked.toLocaleString('zh-CN', { hour12: false })
+            : '(未运行过)';
+          const next = t.nextRun ? t.nextRun.toLocaleString('zh-CN', { hour12: false }) : '(未知)';
+          lines.push(`**${t.name}**  \`${t.schedule}\` → ${t.human}`);
+          lines.push(`　类型 ${t.kind === 'send' ? '直接发送' : '过 agent'} · 上次检查 ${last}`);
+          lines.push(
+            `　下次 ${next}${t.chat === msg.chatId ? '' : ` · 发到 ${t.chat.slice(0, 12)}…`}`,
+          );
+          lines.push('');
+        }
+        if (scheduler.problems.length > 0) {
+          lines.push('⚠️ 配置问题：');
+          for (const p of scheduler.problems) lines.push(`- ${p}`);
+        }
+        await reply(msg, lines.join('\n'));
         return true;
       }
 
